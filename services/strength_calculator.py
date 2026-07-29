@@ -7,80 +7,69 @@ from dataclasses import dataclass
 class StrengthRecommendation:
     next_weight: float
     next_sets: int
-    next_repetitions: int
+    target_reps: int
     action: str
     reason: str
+    estimated_one_rep_max: float | None
 
 
 def round_to_increment(value: float, increment: float) -> float:
     if increment <= 0:
         raise ValueError("Increment must be greater than zero.")
-
     return round(value / increment) * increment
 
 
-def estimate_one_rep_max(weight: float, repetitions: int) -> float:
-    """
-    Estimate one-repetition maximum using the Epley formula.
-    Avoid using very high-repetition sets for this estimate.
-    """
-
-    if weight <= 0:
-        raise ValueError("Weight must be greater than zero.")
-
-    if repetitions <= 0:
-        raise ValueError("Repetitions must be greater than zero.")
-
-    return weight * (1 + repetitions / 30)
+def estimate_one_rep_max(weight: float, repetitions: int) -> float | None:
+    """Epley estimate. Suppress estimates for unloaded or very high-repetition sets."""
+    if weight <= 0 or repetitions <= 0 or repetitions > 15:
+        return None
+    return round(weight * (1 + repetitions / 30), 1)
 
 
-def recommend_next_session(
-    current_weight: float,
-    sets: int,
-    repetitions: int,
-    all_sets_completed: bool,
-    average_rpe: float,
-    exercise_type: str,
-    pain_reported: bool = False,
-) -> StrengthRecommendation:
+def recommend_next_session(*, current_weight: float, completed_sets: int, planned_sets: int,
+                           target_reps: int, minimum_reps_completed: int, average_rpe: float,
+                           exercise_category: str, pain_reported: bool = False) -> StrengthRecommendation:
+    category = (exercise_category or "").lower()
+    upper = any(word in category for word in ("upper", "push", "pull", "grip"))
+    increment = 5.0 if upper else 10.0
+    plate_increment = 2.5 if upper else 5.0
+    e1rm = estimate_one_rep_max(current_weight, max(1, minimum_reps_completed))
+
     if pain_reported:
         return StrengthRecommendation(
-            next_weight=current_weight,
-            next_sets=sets,
-            next_repetitions=repetitions,
-            action="Stop automatic progression",
-            reason="Pain was reported. Review or substitute the movement.",
+            current_weight, max(2, planned_sets - 1), target_reps,
+            "Do not auto-progress", "Pain was reported. Use a pain-free substitute or seek qualified guidance.", e1rm,
         )
 
-    increment = 5.0 if exercise_type.lower() == "upper" else 10.0
+    all_sets = completed_sets >= planned_sets
+    all_reps = minimum_reps_completed >= target_reps
 
-    if all_sets_completed and average_rpe <= 7:
-        next_weight = round_to_increment(
-            current_weight + increment,
-            2.5 if exercise_type.lower() == "upper" else 5.0,
-        )
-
+    if all_sets and all_reps and average_rpe <= 7.5:
         return StrengthRecommendation(
-            next_weight=next_weight,
-            next_sets=sets,
-            next_repetitions=repetitions,
-            action="Increase weight",
-            reason="All sets were completed with manageable effort.",
+            round_to_increment(current_weight + increment, plate_increment), planned_sets, target_reps,
+            "Increase load", "All target work was completed with at least a few repetitions in reserve.", e1rm,
         )
-
-    if all_sets_completed and average_rpe <= 8:
+    if all_sets and all_reps and average_rpe <= 8.5:
         return StrengthRecommendation(
-            next_weight=current_weight,
-            next_sets=sets,
-            next_repetitions=repetitions,
-            action="Repeat weight",
-            reason="The session was successful but sufficiently challenging.",
+            current_weight, planned_sets, target_reps,
+            "Repeat load", "The load was productive and sufficiently challenging.", e1rm,
         )
-
+    if all_sets and minimum_reps_completed >= max(1, target_reps - 1) and average_rpe <= 9:
+        return StrengthRecommendation(
+            current_weight, planned_sets, target_reps,
+            "Repeat and complete", "Keep the load until every set reaches the repetition target cleanly.", e1rm,
+        )
     return StrengthRecommendation(
-        next_weight=round_to_increment(current_weight * 0.95, 2.5),
-        next_sets=max(2, sets - 1),
-        next_repetitions=repetitions,
-        action="Reduce load",
-        reason="The previous session was incomplete or too difficult.",
+        round_to_increment(max(0, current_weight * 0.95), plate_increment), max(2, planned_sets - 1), target_reps,
+        "Reduce fatigue", "The prior work was incomplete or too difficult. Reduce load or one set next time.", e1rm,
     )
+
+
+def recommend_timed_progression(*, best_seconds: int, average_rpe: float, pain_reported: bool = False) -> tuple[int, str]:
+    if pain_reported:
+        return best_seconds, "Hold duration and use only a pain-free variation."
+    if average_rpe <= 7.5:
+        return best_seconds + 5, "Add 5 seconds next session."
+    if average_rpe <= 8.5:
+        return best_seconds, "Repeat the same duration."
+    return max(5, best_seconds - 5), "Reduce by 5 seconds and rebuild cleanly."
