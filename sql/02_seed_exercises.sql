@@ -1,0 +1,30 @@
+insert into exercises (exercise_name, category, equipment, movement_pattern, home_alternative)
+values
+('Goblet Squat','Strength','Dumbbell','Squat','Band Squat'),
+('Leg Press','Strength','Machine','Squat','Tempo Chair Squat'),
+('Romanian Deadlift','Strength','Barbell/Dumbbell','Hinge','Band Romanian Deadlift'),
+('Dumbbell Bench Press','Strength','Dumbbell','Push','Push-Up'),
+('Push-Up','Strength','Bodyweight','Push','Elevated Push-Up'),
+('Cable Row','Strength','Cable','Pull','Band Row'),
+('Chest-Supported Row','Strength','Dumbbell/Machine','Pull','Band Row'),
+('Reverse Lunge','Strength','Dumbbell','Lunge','Bodyweight Reverse Lunge'),
+('Split Squat','Strength','Bodyweight/Dumbbell','Lunge','Bodyweight Split Squat'),
+('Pallof Press','Core','Cable/Band','Anti-Rotation','Band Pallof Press'),
+('Standing Calf Raise','Strength','Machine/Bodyweight','Calf','Single-Leg Calf Raise'),
+('Assisted Pull-Up','Spartan','Machine/Band','Vertical Pull','Kneeling Band Pulldown'),
+('Lat Pulldown','Spartan','Cable','Vertical Pull','Kneeling Band Pulldown'),
+('Dead Hang','Spartan','Pull-Up Bar','Grip','Band Straight-Arm Pulldown'),
+('Active Hang','Spartan','Pull-Up Bar','Grip','Band Straight-Arm Pulldown'),
+('Farmer Carry','Spartan','Dumbbell/Kettlebell','Carry','Loaded Backpack Carry'),
+('Suitcase Carry','Spartan','Dumbbell/Kettlebell','Carry','Loaded Backpack Carry'),
+('Step-Up','Spartan','Box/Dumbbell','Step','Stair Step-Up'),
+('Overhead Press','Strength','Dumbbell/Barbell','Push','Band Overhead Press'),
+('Bear Crawl','Spartan','Bodyweight','Crawl','Bear Crawl'),
+('Towel-Grip Pulldown','Spartan','Cable/Towel','Grip Pull','Band/Towel Isometric Pull'),
+('Burpee','Spartan','Bodyweight','Conditioning','Burpee')
+on conflict (exercise_name) do update set
+category = excluded.category,
+equipment = excluded.equipment,
+movement_pattern = excluded.movement_pattern,
+home_alternative = excluded.home_alternative,
+is_active = true;
