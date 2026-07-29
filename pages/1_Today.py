@@ -1,51 +1,16 @@
 from datetime import date
-
 import streamlit as st
-
 from services.app_helpers import PROFILE_ID, configure_page
-from services.database import fetch_rows
-
-configure_page("Today's Plan", "📅")
-st.title("Today's Plan")
-
-weekday = date.today().strftime("%A")
-defaults = {
-    "Sunday": ("Long easy run", "Stay conversational. Record distance, time, RPE, and fueling notes."),
-    "Monday": ("Active recovery + mobility", "Easy walk plus the 20-minute hips, ankles, and shoulders routine."),
-    "Tuesday": ("Strength A", "Squat, hinge, push, row, split squat, Pallof press, and calves."),
-    "Wednesday": ("Quality run", "Use the current week from your 12-week running progression."),
-    "Thursday": ("Rest or gentle mobility", "Keep this easy unless recovery is excellent."),
-    "Friday": ("Strength B + Spartan", "Pulling, hangs, carries, step-ups, crawling, and rope skill."),
-    "Saturday": ("Easy run + strides", "Easy aerobic work. Remove this first during a busy week."),
-}
-name, instructions = defaults[weekday]
-
-st.subheader(f"{weekday}: {name}")
-st.write(instructions)
-
-recent = fetch_rows(
-    "workout_sessions",
-    filters={"profile_id": PROFILE_ID},
-    order_by="scheduled_date",
-    descending=True,
-    limit=5,
-)
-
-with st.expander("Recovery check", expanded=True):
-    sleep = st.number_input("Sleep last night", 0.0, 12.0, 7.0, 0.5)
-    soreness = st.slider("Soreness", 1, 10, 3)
-    stress = st.slider("Stress", 1, 10, 5)
-    pain = st.checkbox("Sharp pain or altered movement")
-
-    if pain:
-        st.error("Red day: do not progress training. Rest or use pain-free gentle movement.")
-    elif sleep < 6 or soreness >= 7 or stress >= 8:
-        st.warning("Yellow day: reduce one strength set or replace hard running with easy running/walking.")
-    else:
-        st.success("Green day: the planned session is reasonable if you otherwise feel normal.")
-
-st.subheader("Recent sessions")
-if recent:
-    st.dataframe(recent, use_container_width=True, hide_index=True)
-else:
-    st.info("No completed sessions yet.")
+from services.database import fetch_rows, update_rows
+configure_page("Today's Plan",'📅'); st.title("Today's Plan")
+today=date.today().isoformat(); approved=fetch_rows('workout_recommendations',filters={'profile_id':PROFILE_ID,'target_date':today,'status':'Approved'},order_by='approved_at',descending=True,limit=1)
+if approved:
+    rec=approved[0]; st.subheader(rec['title']); a,b=st.columns(2); a.metric('Duration',f"{rec['duration_minutes']} min"); b.metric('Intensity',rec['intensity']); st.write(rec['instructions']); st.info(f"Home option: {rec.get('home_alternative') or 'Use the closest band or bodyweight variation.'}")
+    with st.expander('Recommendation rationale'):
+        for reason in rec.get('rationale') or []: st.write(f'• {reason}')
+    c1,c2=st.columns(2)
+    if c1.button('Mark completed',type='primary'): update_rows('workout_recommendations',{'status':'Completed'},filters={'recommendation_id':rec['recommendation_id']}); st.success('Recommendation marked completed. Log the actual workout details on the normal logging page.'); st.rerun()
+    if c2.button('Skip session'): update_rows('workout_recommendations',{'status':'Skipped'},filters={'recommendation_id':rec['recommendation_id']}); st.warning('Session marked skipped. Do not cram it into tomorrow automatically.'); st.rerun()
+else: st.info('No approved adaptive session exists for today. Open Adaptive Coach, enter recovery information, and approve a recommendation.')
+st.subheader('Recent recommendations'); recent=fetch_rows('workout_recommendations',filters={'profile_id':PROFILE_ID},order_by='target_date',descending=True,limit=10)
+if recent: st.dataframe([{k:r.get(k) for k in ('target_date','title','duration_minutes','intensity','status')} for r in recent],use_container_width=True,hide_index=True)
