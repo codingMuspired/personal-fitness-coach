@@ -39,11 +39,30 @@ def save_weekly_plan(profile_id: int, plan: WeeklyPlan) -> dict[str, Any]:
             'intensity': session.intensity,
             'instructions': session.instructions,
             'home_alternative': session.home_alternative,
+            'pace_guidance': session.pace_guidance,
+            'treadmill_guidance': session.treadmill_guidance,
+            'run_structure_summary': session.run_structure_summary,
             'status': session.status,
             'moved_from_date': session.moved_from_date.isoformat() if session.moved_from_date else None,
         }
         session_response = client.table('weekly_plan_sessions').insert(session_payload).execute()
         session_id = session_response.data[0]['weekly_plan_session_id']
+        if session.run_segments:
+            run_rows = [{
+                'weekly_plan_session_id': session_id,
+                'segment_order': segment.order,
+                'segment_type': segment.segment_type,
+                'label': segment.label,
+                'repetitions': segment.repetitions,
+                'target_distance_miles': segment.distance_miles,
+                'target_duration_seconds': segment.duration_seconds,
+                'recovery_seconds': segment.recovery_seconds,
+                'pace_min_seconds_per_mile': segment.pace_min_seconds_per_mile,
+                'pace_max_seconds_per_mile': segment.pace_max_seconds_per_mile,
+                'target_rpe': segment.target_rpe,
+                'notes': segment.notes,
+            } for segment in session.run_segments]
+            client.table('prescribed_run_segments').insert(run_rows).execute()
         if session.exercises:
             exercise_rows = [{
                 'weekly_plan_session_id': session_id,
@@ -76,7 +95,7 @@ def fetch_weekly_plan(profile_id: int, week_start_date: str) -> dict[str, Any] |
     if not response.data:
         return None
     plan = response.data[0]
-    sessions = client.table('weekly_plan_sessions').select('*, prescribed_exercises(*)').eq('weekly_plan_id', plan['weekly_plan_id']).order('session_date').order('sequence_number').execute()
+    sessions = client.table('weekly_plan_sessions').select('*, prescribed_exercises(*), prescribed_run_segments(*)').eq('weekly_plan_id', plan['weekly_plan_id']).order('session_date').order('sequence_number').execute()
     plan['sessions'] = sessions.data
     return plan
 

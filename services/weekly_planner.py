@@ -6,6 +6,7 @@ from typing import Any, Iterable
 
 from services.adaptive_coach import RecoveryState
 from services.strength_calculator import recommend_next_session
+from services.run_prescription import RunSegment, build_run_prescription, segments_summary, pace_range_text, treadmill_mph
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,10 @@ class PlannedSession:
     instructions: str
     home_alternative: str
     exercises: tuple[ExercisePrescription, ...] = ()
+    run_segments: tuple[RunSegment, ...] = ()
+    pace_guidance: str | None = None
+    treadmill_guidance: str | None = None
+    run_structure_summary: str | None = None
     status: str = 'Planned'
     moved_from_date: date | None = None
 
@@ -46,6 +51,7 @@ class PlannedSession:
         result['session_date'] = self.session_date.isoformat()
         result['moved_from_date'] = self.moved_from_date.isoformat() if self.moved_from_date else None
         result['exercises'] = [x.to_dict() for x in self.exercises]
+        result['run_segments'] = [x.to_dict() for x in self.run_segments]
         return result
 
 
@@ -254,8 +260,25 @@ def generate_weekly_plan(*, week_start_date: date,
             instructions = 'Rest, gentle walking, and pain-free mobility only.'
             intensity = 'Very easy'
         exercises: tuple[ExercisePrescription, ...] = ()
+        run_segments: tuple[RunSegment, ...] = ()
+        pace_guidance = None
+        treadmill_guidance = None
+        run_structure_summary = None
         if kind in {'Strength A', 'Strength B'}:
             exercises = build_strength_prescriptions(kind, lift_history, is_deload=is_deload, recovery_level=recovery.level)
+        if kind in {'Quality Run', 'Easy Run', 'Long Run'} and session_distance:
+            run_segments = build_run_prescription(
+                kind, session_distance, five_k_seconds=2088,
+                week_number=max(1, ((week_start_date.toordinal() // 7) % 12) + 1),
+                is_deload=is_deload,
+            )
+            run_structure_summary = segments_summary(run_segments)
+            paced = [x for x in run_segments if x.pace_min_seconds_per_mile or x.pace_max_seconds_per_mile]
+            if paced:
+                pace_guidance = '; '.join(f"{x.label}: {pace_range_text(x.pace_min_seconds_per_mile, x.pace_max_seconds_per_mile)}" for x in paced)
+                first = paced[0]
+                midpoint = ((first.pace_min_seconds_per_mile or first.pace_max_seconds_per_mile) + (first.pace_max_seconds_per_mile or first.pace_min_seconds_per_mile)) / 2
+                treadmill_guidance = f"Approximately {treadmill_mph(midpoint):.1f} mph for the first paced segment"
         sessions.append(PlannedSession(
             session_date=session_date,
             sequence_number=seq,
@@ -267,6 +290,10 @@ def generate_weekly_plan(*, week_start_date: date,
             instructions=instructions,
             home_alternative='Use the listed resistance-band or bodyweight substitutions.',
             exercises=exercises,
+            run_segments=run_segments,
+            pace_guidance=pace_guidance,
+            treadmill_guidance=treadmill_guidance,
+            run_structure_summary=run_structure_summary,
         ))
     evidence = {
         'recovery_level': recovery.level,
