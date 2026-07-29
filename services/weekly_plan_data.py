@@ -63,6 +63,21 @@ def save_weekly_plan(profile_id: int, plan: WeeklyPlan) -> dict[str, Any]:
                 'notes': segment.notes,
             } for segment in session.run_segments]
             client.table('prescribed_run_segments').insert(run_rows).execute()
+        if session.recovery_exercises:
+            recovery_rows = [{
+                'weekly_plan_session_id': session_id,
+                'exercise_order': item.order,
+                'exercise_name': item.name,
+                'category': item.category,
+                'target_sets': item.sets,
+                'target_repetitions': item.repetitions,
+                'target_duration_seconds': item.duration_seconds,
+                'side_instruction': item.side,
+                'target_rpe': item.target_rpe,
+                'notes': item.notes,
+                'is_optional': item.optional,
+            } for item in session.recovery_exercises]
+            client.table('prescribed_recovery_exercises').insert(recovery_rows).execute()
         if session.exercises:
             exercise_rows = [{
                 'weekly_plan_session_id': session_id,
@@ -95,7 +110,7 @@ def fetch_weekly_plan(profile_id: int, week_start_date: str) -> dict[str, Any] |
     if not response.data:
         return None
     plan = response.data[0]
-    sessions = client.table('weekly_plan_sessions').select('*, prescribed_exercises(*), prescribed_run_segments(*)').eq('weekly_plan_id', plan['weekly_plan_id']).order('session_date').order('sequence_number').execute()
+    sessions = client.table('weekly_plan_sessions').select('*, prescribed_exercises(*), prescribed_run_segments(*), prescribed_recovery_exercises(*)').eq('weekly_plan_id', plan['weekly_plan_id']).order('session_date').order('sequence_number').execute()
     plan['sessions'] = sessions.data
     return plan
 

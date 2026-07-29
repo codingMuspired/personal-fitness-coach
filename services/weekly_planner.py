@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from services.adaptive_coach import RecoveryState
 from services.strength_calculator import recommend_next_session
 from services.run_prescription import RunSegment, build_run_prescription, segments_summary, pace_range_text, treadmill_mph
+from services.recovery_prescription import RecoveryExercise, build_recovery_prescription, recovery_summary
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class PlannedSession:
     home_alternative: str
     exercises: tuple[ExercisePrescription, ...] = ()
     run_segments: tuple[RunSegment, ...] = ()
+    recovery_exercises: tuple[RecoveryExercise, ...] = ()
     pace_guidance: str | None = None
     treadmill_guidance: str | None = None
     run_structure_summary: str | None = None
@@ -52,6 +54,7 @@ class PlannedSession:
         result['moved_from_date'] = self.moved_from_date.isoformat() if self.moved_from_date else None
         result['exercises'] = [x.to_dict() for x in self.exercises]
         result['run_segments'] = [x.to_dict() for x in self.run_segments]
+        result['recovery_exercises'] = [x.to_dict() for x in self.recovery_exercises]
         return result
 
 
@@ -261,11 +264,18 @@ def generate_weekly_plan(*, week_start_date: date,
             intensity = 'Very easy'
         exercises: tuple[ExercisePrescription, ...] = ()
         run_segments: tuple[RunSegment, ...] = ()
+        recovery_exercises: tuple[RecoveryExercise, ...] = ()
         pace_guidance = None
         treadmill_guidance = None
         run_structure_summary = None
         if kind in {'Strength A', 'Strength B'}:
             exercises = build_strength_prescriptions(kind, lift_history, is_deload=is_deload, recovery_level=recovery.level)
+        if kind in {'Recovery', 'Rest'}:
+            recovery_exercises = build_recovery_prescription(
+                session_type=kind, duration_minutes=session_duration,
+                is_deload=is_deload, recovery_level=recovery.level,
+            )
+            instructions = recovery_summary(recovery_exercises)
         if kind in {'Quality Run', 'Easy Run', 'Long Run'} and session_distance:
             run_segments = build_run_prescription(
                 kind, session_distance, five_k_seconds=2088,
@@ -291,6 +301,7 @@ def generate_weekly_plan(*, week_start_date: date,
             home_alternative='Use the listed resistance-band or bodyweight substitutions.',
             exercises=exercises,
             run_segments=run_segments,
+            recovery_exercises=recovery_exercises,
             pace_guidance=pace_guidance,
             treadmill_guidance=treadmill_guidance,
             run_structure_summary=run_structure_summary,

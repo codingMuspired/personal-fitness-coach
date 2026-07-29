@@ -6,12 +6,20 @@ import streamlit as st
 
 from services.app_helpers import PROFILE_ID
 from services.run_prescription import format_pace, pace_range_text, treadmill_mph
-from services.weekly_plan_editor import fetch_week_scope, replace_run_segments, update_session, update_week_metadata
+from services.weekly_plan_editor import fetch_week_scope, replace_run_segments, replace_recovery_exercises, update_session, update_week_metadata
 from services.weekly_planner import monday_of
 
 st.set_page_config(page_title="Week Editor", page_icon="🗓️", layout="wide")
 st.title("Week Editor")
 st.caption("Review the entire week, move sessions to different dates, and edit detailed run prescriptions before training.")
+
+
+def has_value(value):
+    return value is not None and pd.notna(value)
+
+def safe_int(value):
+    return int(float(value)) if has_value(value) else None
+
 
 week_start = monday_of(st.date_input("Week containing", value=date.today()))
 plan = fetch_week_scope(PROFILE_ID, week_start.isoformat())
@@ -41,6 +49,11 @@ for session in plan.get("sessions", []):
         f"{int(x.get('repetitions') or 1)}× {x['label']} {pace_range_text(x.get('pace_min_seconds_per_mile'), x.get('pace_max_seconds_per_mile'))}"
         for x in segments
     )
+    recovery_items = sorted(session.get("prescribed_recovery_exercises") or [], key=lambda x: x["exercise_order"])
+    recovery_detail = "; ".join(
+        f"{x['exercise_name']} ({x.get('target_sets') or 1}×{x.get('target_repetitions') or (str(x.get('target_duration_seconds')) + ' sec' if x.get('target_duration_seconds') else 'by feel')})"
+        for x in recovery_items
+    )
     scope_rows.append({
         "Date": session["session_date"],
         "Day": date.fromisoformat(session["session_date"]).strftime("%A"),
@@ -51,6 +64,7 @@ for session in plan.get("sessions", []):
         "Intensity": session["intensity"],
         "Status": session["status"],
         "Run details": run_detail,
+        "Recovery details": recovery_detail,
     })
 st.dataframe(pd.DataFrame(scope_rows), use_container_width=True, hide_index=True)
 
@@ -128,12 +142,53 @@ for session in plan.get("sessions", []):
                     "Segment": row.get("label"), "Reps": row.get("repetitions"),
                     "Pace": pace_range_text(fast, slow),
                     "Treadmill": f"{treadmill_mph(representative):.1f} mph" if representative else "By effort",
-                    "Recovery": f"{int(row['recovery_seconds'])} sec" if pd.notna(row.get("recovery_seconds")) else "—",
+                    "Recovery": f"{safe_int(row.get('recovery_seconds'))} sec" if has_value(row.get("recovery_seconds")) else "—",
                 })
             st.dataframe(preview, use_container_width=True, hide_index=True)
             if st.button("Save run prescription", key=f"save_segments_{session_id}"):
                 replace_run_segments(session_id, edited.to_dict("records"))
                 st.success("Run prescription saved.")
+                st.rerun()
+
+        recovery_items = sorted(session.get("prescribed_recovery_exercises") or [], key=lambda x: x["exercise_order"])
+        if recovery_items or session["workout_type"] in {"Recovery", "Rest"}:
+            st.markdown("#### Recovery and mobility prescription")
+            recovery_rows = [{
+                "exercise_name": x["exercise_name"],
+                "category": x.get("category") or "Mobility",
+                "target_sets": x.get("target_sets") or 1,
+                "target_repetitions": x.get("target_repetitions"),
+                "target_duration_seconds": x.get("target_duration_seconds"),
+                "side_instruction": x.get("side_instruction"),
+                "target_rpe": x.get("target_rpe"),
+                "is_optional": bool(x.get("is_optional")),
+                "notes": x.get("notes"),
+            } for x in recovery_items]
+            if not recovery_rows:
+                recovery_rows = [{
+                    "exercise_name": "Easy walk", "category": "Cardio", "target_sets": 1,
+                    "target_repetitions": None, "target_duration_seconds": 900,
+                    "side_instruction": None, "target_rpe": 2.0,
+                    "is_optional": False, "notes": "Conversational effort.",
+                }]
+            edited_recovery = st.data_editor(
+                pd.DataFrame(recovery_rows), num_rows="dynamic", use_container_width=True,
+                key=f"recovery_{session_id}",
+                column_config={
+                    "exercise_name": "Exercise or stretch",
+                    "category": st.column_config.SelectboxColumn("Category", options=["Cardio", "Mobility", "Stretch", "Activation", "Breathing", "Yoga"]),
+                    "target_sets": st.column_config.NumberColumn("Sets", min_value=1, step=1),
+                    "target_repetitions": st.column_config.NumberColumn("Reps", min_value=0, step=1),
+                    "target_duration_seconds": st.column_config.NumberColumn("Seconds", min_value=0, step=5),
+                    "side_instruction": "Side",
+                    "target_rpe": st.column_config.NumberColumn("RPE", min_value=1.0, max_value=10.0, step=0.5),
+                    "is_optional": "Optional",
+                    "notes": "Instructions",
+                },
+            )
+            if st.button("Save recovery prescription", key=f"save_recovery_{session_id}"):
+                replace_recovery_exercises(session_id, edited_recovery.to_dict("records"))
+                st.success("Recovery prescription saved.")
                 st.rerun()
 
 st.caption("Dates can be moved slightly outside the Monday–Sunday range to handle real scheduling conflicts. Keep hard sessions separated whenever possible.")

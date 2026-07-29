@@ -51,6 +51,21 @@ for session in sessions:
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
+    recovery_items = sorted(session.get("prescribed_recovery_exercises") or [], key=lambda x: x["exercise_order"])
+    if recovery_items:
+        st.subheader("Recovery and mobility details")
+        st.dataframe(pd.DataFrame([{
+            "Exercise": x["exercise_name"],
+            "Category": x.get("category"),
+            "Sets": x.get("target_sets"),
+            "Reps": x.get("target_repetitions"),
+            "Seconds": x.get("target_duration_seconds"),
+            "Side": x.get("side_instruction") or "—",
+            "RPE": x.get("target_rpe"),
+            "Optional": "Yes" if x.get("is_optional") else "No",
+            "Instructions": x.get("notes"),
+        } for x in recovery_items]), use_container_width=True, hide_index=True)
+
     exercises = sorted(session.get("prescribed_exercises") or [], key=lambda x: x["exercise_order"])
     if exercises:
         st.subheader("Strength details")
