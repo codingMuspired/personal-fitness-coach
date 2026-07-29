@@ -1,16 +1,49 @@
+from __future__ import annotations
+
 from datetime import date
 import streamlit as st
-from services.app_helpers import PROFILE_ID, configure_page
-from services.database import fetch_rows, update_rows
-configure_page("Today's Plan",'📅'); st.title("Today's Plan")
-today=date.today().isoformat(); approved=fetch_rows('workout_recommendations',filters={'profile_id':PROFILE_ID,'target_date':today,'status':'Approved'},order_by='approved_at',descending=True,limit=1)
-if approved:
-    rec=approved[0]; st.subheader(rec['title']); a,b=st.columns(2); a.metric('Duration',f"{rec['duration_minutes']} min"); b.metric('Intensity',rec['intensity']); st.write(rec['instructions']); st.info(f"Home option: {rec.get('home_alternative') or 'Use the closest band or bodyweight variation.'}")
-    with st.expander('Recommendation rationale'):
-        for reason in rec.get('rationale') or []: st.write(f'• {reason}')
-    c1,c2=st.columns(2)
-    if c1.button('Mark completed',type='primary'): update_rows('workout_recommendations',{'status':'Completed'},filters={'recommendation_id':rec['recommendation_id']}); st.success('Recommendation marked completed. Log the actual workout details on the normal logging page.'); st.rerun()
-    if c2.button('Skip session'): update_rows('workout_recommendations',{'status':'Skipped'},filters={'recommendation_id':rec['recommendation_id']}); st.warning('Session marked skipped. Do not cram it into tomorrow automatically.'); st.rerun()
-else: st.info('No approved adaptive session exists for today. Open Adaptive Coach, enter recovery information, and approve a recommendation.')
-st.subheader('Recent recommendations'); recent=fetch_rows('workout_recommendations',filters={'profile_id':PROFILE_ID},order_by='target_date',descending=True,limit=10)
-if recent: st.dataframe([{k:r.get(k) for k in ('target_date','title','duration_minutes','intensity','status')} for r in recent],use_container_width=True,hide_index=True)
+
+from services.app_helpers import PROFILE_ID
+from services.weekly_plan_data import fetch_weekly_plan, update_session_status
+from services.weekly_planner import monday_of
+
+st.set_page_config(page_title="Today's Plan", page_icon='✅', layout='wide')
+st.title("Today's Plan")
+
+today = date.today()
+plan = fetch_weekly_plan(PROFILE_ID, monday_of(today).isoformat())
+if not plan:
+    st.info('No weekly plan exists. Open Weekly Planner to generate one.')
+    st.stop()
+
+sessions = [s for s in plan.get('sessions', []) if s['session_date'] == today.isoformat() and s['status'] not in {'Moved','Cancelled'}]
+if not sessions:
+    st.success('No planned training today. Rest or complete gentle mobility.')
+    st.stop()
+
+for session in sessions:
+    st.subheader(session['title'])
+    c1,c2,c3 = st.columns(3)
+    c1.metric('Duration', f"{session['duration_minutes']} min")
+    c2.metric('Intensity', session['intensity'])
+    c3.metric('Status', session['status'])
+    st.write(session['instructions'])
+    if session.get('target_distance_miles'):
+        st.write(f"Target distance: **{float(session['target_distance_miles']):.1f} miles**")
+    exercises = sorted(session.get('prescribed_exercises') or [], key=lambda x: x['exercise_order'])
+    if exercises:
+        st.dataframe([{
+            'Exercise': x['exercise_name'], 'Sets': x.get('target_sets'),
+            'Reps': x.get('target_repetitions'), 'Weight': x.get('target_weight_lb'),
+            'Seconds': x.get('target_duration_seconds'), 'RPE': x.get('target_rpe'),
+            'Home': x.get('substitution_name')
+        } for x in exercises], use_container_width=True, hide_index=True)
+    b1,b2 = st.columns(2)
+    if b1.button('Mark completed', key=f"done_{session['weekly_plan_session_id']}"):
+        update_session_status(session['weekly_plan_session_id'], 'Completed')
+        st.success('Session marked completed. Log the actual run or exercise sets separately.')
+        st.rerun()
+    if b2.button('Skip session', key=f"skip_{session['weekly_plan_session_id']}"):
+        update_session_status(session['weekly_plan_session_id'], 'Skipped')
+        st.warning('Session skipped. Open Weekly Planner before moving it to another day.')
+        st.rerun()
